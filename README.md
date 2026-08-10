@@ -2,7 +2,7 @@
 
 A modern full-stack .NET 10.0 + React Vite project template that combines the power of ServiceStack with React Vite static site generation and React 19. It provides a production-ready foundation for building scalable web applications with integrated authentication, database management, and background job processing.
 
-![](https://github.com/ServiceStack/docs.servicestack.net/blob/main/MyApp/wwwroot/img/pages/react/react-static.webp)
+![](screenshot.webp)
 
 > Browse [source code](https://github.com/NetCoreTemplates/react-static), view live demo [react-static.web-templates.io](http://react-static.web-templates.io) and install with:
 
