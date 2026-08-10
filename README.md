@@ -1,445 +1,223 @@
-# react-static
+# CoffeeShopChat
 
-A modern full-stack .NET 10.0 + React Vite project template that combines the power of ServiceStack with React Vite static site generation and React 19. It provides a production-ready foundation for building scalable web applications with integrated authentication, database management, and background job processing.
+![CoffeeShopChat](screenshot.webp)
 
-![](screenshot.webp)
+**CoffeeShopChat** is a reference demonstration showing how to use [ServiceStack API Tools](https://servicestack.net/posts/api-tools) and the built-in `ChatFeature` to expose existing ServiceStack APIs to AI Models.
 
-> Browse [source code](https://github.com/NetCoreTemplates/react-static), view live demo [react-static.web-templates.io](http://react-static.web-templates.io) and install with:
+With API Tools, AI assistants can discover your APIs, inspect their schemas, price and validate requests, and execute complete workflows (such as ordering coffee) through natural language—all while staying strictly bounded by your C# DTO contracts, declarative validation, and server-side authorization.
 
-## Quick Start
+In addition to powering the built-in web-based **AI.Chat UI**, CoffeeShopChat exposes these capabilities via a Model Context Protocol (**MCP**) server, allowing external AI clients (like OpenCode, Cursor, Claude Code, and Oh My Pi) to discover and call your APIs directly.
 
-```bash
-npx create-net react-static MyProject
+---
+
+## Background & Philosophy
+
+In 2023, natural language API ordering was demonstrated using Microsoft's TypeChat, which required:
+1. Writing and maintaining a separate, AI-specific TypeScript schema parallel to .NET backend models.
+2. Hardcoding prompt scaffolding and JSON validation retry loops.
+3. Invoking a Node.js process from .NET and writing custom mapping logic to convert LLM output into backend DTOs.
+
+### The Single Source of Truth
+**ServiceStack API Tools** turn that approach inside out:
+- **No Parallel Schemas**: Your typed C# Request/Response DTOs, declarative validation attributes (`[ValidateNotEmpty]`, `[ValidateGreaterThan]`), routes, and authorization rules serve as the single source of truth.
+- **Dynamic & Adaptive**: Modern LLMs are smart enough to discover capabilities dynamically when presented with rich metadata. As models improve, your AI workflows improve without requiring codebase changes.
+- **Human-in-the-Loop Approval**: Write operations present interactive, schema-driven approval forms where users can review and modify generated parameters (e.g., quantities, size, options) before executing database writes.
+
+---
+
+## How API Tools Work
+
+Rather than dumping hundreds of API schemas into the LLM context window upfront, ServiceStack exposes **three lightweight meta-tools**:
+
+1. **`api_search`**: Searches the API registry using keywords and intent descriptions to find relevant endpoints.
+2. **`api_describe`**: Returns exact Request/Response JSON Schemas, routes, safety levels, and workflow metadata for selected APIs.
+3. **`api_call`**: Invokes the target API through ServiceStack's in-process Service Gateway as the authenticated user.
+
+### Standard AI Workflow Pattern
+
+```text
+Search → Describe → Resolve Current Data → Preview & Validate → Approve → Execute → Verify
 ```
 
-## Jumpstart with Copilot
+For a coffee order (e.g., *"Order two grande hot oat milk lattes with light vanilla syrup for Sam"*):
+1. **Search**: The LLM searches for coffee shop ordering APIs via `api_search`.
+2. **Describe**: It inspects `GetCoffeeShopMenu`, `PreviewCoffeeShopOrder`, and `CreateCoffeeShopOrder` via `api_describe`.
+3. **Resolve Menu**: It calls `GetCoffeeShopMenu` to get live product IDs, available sizes, temperatures, and options.
+4. **Preview**: It calls `PreviewCoffeeShopOrder` to validate combinations and compute exact subtotal prices.
+5. **Approve**: For write operations (`RequiresApproval = true`), AI.Chat presents an editable approval form to the user.
+6. **Execute**: Upon user approval, `CreateCoffeeShopOrder` creates the order in the RDBMS.
+7. **Verify**: The order confirmation and order ID (e.g., `CS-20260811-A1B2C3`) are returned to the user.
 
-Instantly [scaffold a new App with this template](https://github.com/new?template_name=react-static&template_owner=NetCoreTemplates) using GitHub Copilot, just describe the features you want and watch Copilot build it!
+---
 
-## [react-templates.net](https://react-templates.net)
+## Key Code Components
 
-[![](https://github.com/ServiceStack/servicestack.net/blob/main/MyApp/wwwroot/img/posts/vibecode-react-templates/bg.webp?raw=true)](https://react-templates.net)
+### 1. Enabling Chat & MCP Features (`MyApp/Configure.AI.Chat.cs`)
 
-## Getting Started
+Enabling AI.Chat and exposing APIs via MCP requires registering `ChatFeature`:
 
-Run Server .NET Project (automatically starts both .NET and Vite React dev servers):
+```csharp
+using ServiceStack.AI;
 
-```bash
-cd MyProject
-dotnet watch
+[assembly: HostingStartup(typeof(MyApp.ConfigureAiChat))]
+
+namespace MyApp;
+
+public class ConfigureAiChat : IHostingStartup
+{
+    public void Configure(IWebHostBuilder builder) => builder
+        .ConfigureServices(services =>
+        {
+            services.AddPlugin(new ChatFeature
+            {
+                RequireAuth = true,
+                AuthType = ChatAuthType.Credentials,
+                Tools =
+                {
+                    EnableApiTools = true,
+                },
+                Mcp =
+                {
+                    ToolGroups = ["api_tools"],
+                    RejectToolsRequiringApproval = false,
+                },
+            });
+
+            services.ConfigurePlugin<MetadataFeature>(feature =>
+                feature.AddPluginLink("/chat", "AI Coffee Shop"));
+        });
+}
 ```
 
-## Architecture
+### 2. Annotating Request DTOs (`MyApp.ServiceModel/CoffeeShop.cs`)
 
-### Hybrid Development Approach
+ServiceStack metadata and optional `[Tool]` attributes give AI models the intent, safety hints, and workflow instructions needed to use your APIs effectively:
 
-**Development Mode:**
+```csharp
+// 1. Read-only Menu Lookup Tool
+[Tag("CoffeeShop")]
+[Description("Returns the complete coffee shop menu with product IDs, prices, valid sizes, temperatures and customization options")]
+[Tool("the user wants to browse the coffee shop menu, learn what can be ordered, check prices, or build an order", 
+      Safety = ToolSafety.ReadOnly, 
+      Keywords = ["coffee", "drink", "food", "bakery", "customizations"])]
+[Route("/coffee-shop/menu", "GET")]
+public class GetCoffeeShopMenu : IGet, IReturn<GetCoffeeShopMenuResponse> { }
 
-![](https://raw.githubusercontent.com/ServiceStack/docs.servicestack.net/refs/heads/main/MyApp/wwwroot/img/pages/react/info/react-static-dev.svg)
+// 2. Read-only Order Preview & Pricing Tool
+[Tag("CoffeeShop")]
+[Description("Validates and prices a proposed order without saving it. Returns normalized defaults and actionable validation errors")]
+[Tool("an order needs to be checked, normalized or priced before it is submitted", 
+      Safety = ToolSafety.ReadOnly, 
+      Keywords = ["preview", "quote", "total", "validate"])]
+[Route("/coffee-shop/orders/preview", "POST")]
+public class PreviewCoffeeShopOrder : IPost, IReturn<PreviewCoffeeShopOrderResponse>
+{
+    [Description("Name to put on the order")]
+    [ValidateNotEmpty]
+    public string CustomerName { get; set; } = string.Empty;
 
-- ASP.NET Core proxies requests to Vite dev server (running on port 5173)
-- Hot Module Replacement (HMR) support for instant UI updates
-- WebSocket proxying for Vite HMR functionality
+    public string? Notes { get; set; }
 
-**Production Mode:**
+    [Description("One or more products from the current menu")]
+    [ValidateNotEmpty]
+    public List<OrderItemRequest> Items { get; set; } = [];
+}
 
-![](https://raw.githubusercontent.com/ServiceStack/docs.servicestack.net/refs/heads/main/MyApp/wwwroot/img/pages/react/info/react-static-prod.svg)
+// 3. Write Order Creation Tool with Human Approval
+[Tag("CoffeeShop")]
+[Description("Submits a validated coffee shop order. Product names and prices are always resolved from the database")]
+[Tool("the user has finished choosing an order and wants to place or submit it", 
+      Safety = ToolSafety.Write, 
+      RequiresApproval = true, 
+      Keywords = ["buy", "checkout", "place order"])]
+[Route("/coffee-shop/orders", "POST")]
+public class CreateCoffeeShopOrder : IPost, IReturn<CreateCoffeeShopOrderResponse>
+{
+    [Description("Name to put on the order")]
+    [ValidateNotEmpty]
+    public string CustomerName { get; set; } = string.Empty;
 
-- Vite React app is statically exported to `/dist`
-- Static files served directly from ASP.NET Core's `/wwwroot`
-- No separate Node.js server required in production
+    public string? Notes { get; set; }
 
-## Core Technologies
-
-### Frontend
-
-- **React 19** - A JavaScript library for building user interfaces
-- **Vite 7** - Next Generation Frontend Tooling
-- **Tailwind CSS v4** - CSS-first configuration with `@tailwindcss/vite` plugin
-- **TypeScript 5** - JavaScript with syntax for types
-- **Vitest** - Modern testing framework
-- **ServiceStack React Components** - Pre-built UI components
-
-### .NET Frontend (Integrated + Optional)
-- **Razor Pages** - For Identity Auth UI (`/Identity` routes)
-
-### Backend (.NET 10.0)
-- **ServiceStack 10.x** - High-performance web services framework
-- **ASP.NET Core Identity** - Complete authentication & authorization system
-- **Entity Framework Core** - For Identity data management
-- **OrmLite** - ServiceStack's fast, lightweight Typed ORM for application data
-- **SQLite** - Default database - [Upgrade to PostgreSQL/SQL Server/MySQL](#upgrading-to-enterprise-database)
-
-## Major Features
-
-### 1. Authentication & Authorization
-- ASP.NET Core Identity integration with role-based access control
-- Custom user sessions with additional claims
-- Admin users feature for user management at `/admin-ui/users`
-- Email confirmation workflow (configurable SMTP)
-- Razor Pages for Identity UI (`/Identity` routes)
-- Credentials-based authentication
-
-### [2. AutoQuery CRUD](#autoquery-crud-dev-workflow)
-- Declarative API development with minimal code
-- Complete Auth-protected CRUD operations (see Bookings example at `/bookings-auto`)
-- Automatic audit trails (created/modified/deleted tracking)
-- Built-in validation and authorization
-- Type-safe TypeScript DTOs auto-generated from C# models
-
-### 3. Background Jobs
-- `BackgroundsJobFeature` for async task processing
-- Command pattern for job execution
-- Email sending via background jobs
-- Recurring job scheduling support
-- Uses monthly rolling Sqlite databases by default - [Upgrade to PostgreSQL/SQL Server/MySQL](#upgrading-to-enterprise-database)
-
-### 4. Developer Experience
-- **Admin UI** at `/admin-ui` for App management
-- **Health checks** at `/up` endpoint
-- **Modular startup** configuration pattern
-- **Code-first migrations** with OrmLite
-- **Docker support** with container publishing
-- **Kamal deployment** configuration included
-
-### 5. Production Features
-- Static asset caching with intelligent cache invalidation
-- Clean URLs without `.html` extensions
-- HTTPS redirection and HSTS
-- Data protection with persistent keys
-- Health monitoring
-- Database developer page for EF Core errors
-
-## Project Structure
-
-```
-├── MyApp/                      # .NET Backend
-│   ├── Configure.*.cs          # Modular AppHost configuration
-│   ├── Migrations/             # EF Core & OrmLite migrations
-│   ├── Program.cs              # Application entry point
-│   └── wwwroot/                # Static files (production build)
-│
-├── MyApp.Client/               # React Frontend
-│   ├── src/
-│   │   ├── components/         # React components
-│   │   ├── lib/
-│   │   │   ├── dtos.ts         # Auto-generated TypeScript DTOs
-│   │   │   ├── gateway.ts      # ServiceStack API client
-│   │   │   └── utils.ts        # Utility functions
-│   │   ├── styles/
-│   │   │   └── index.css       # Tailwind CSS styles
-│   │   ├── App.tsx             # Main App component
-│   │   └── main.tsx            # Application entry point
-│   ├── vite.config.ts          # Vite configuration
-│   └── package.json            # NPM dependencies
-│
-├── MyApp.ServiceInterface/     # Service implementations
-├── MyApp.ServiceModel/         # DTOs & API definitions
-├── MyApp.Tests/                # Integration & unit tests
-└── config/
-│   └── deploy.yml              # Kamal deployment configuration
-│──.github/                     # GitHub Actions workflows
-└── workflows/
-    ├── build.yml               # CI build and test
-    ├── build-container.yml     # Container image build
-    └── release.yml             # Production deployment with Kamal
+    [Description("Final order items. The approval form lets the user edit these before submission")]
+    [ValidateNotEmpty]
+    public List<OrderItemRequest> Items { get; set; } = [];
+}
 ```
 
+---
 
-## Development Workflow
+## Model Context Protocol (MCP) Integration
 
-### 1. Start Development
+The built-in MCP server at `/chat/mcp` lets external AI assistants call your ServiceStack APIs using standard Model Context Protocol.
 
-```bash
-dotnet watch
-```
+### Connecting External AI Clients
 
-This automatically starts both .NET and Vite dev servers.
+External tools authenticate using a ServiceStack API Key as a HTTP Bearer Token. All API calls executed via MCP run with the identity, permissions, and roles assigned to that API key.
 
-### 2. Generate TypeScript DTOs
-
-After modifying C# service models, regenerate TypeScript dtos.ts in `MyApp` or `MyApp.Client` with:
-
-```bash
-npm run dtos
-```
-
-### 3. Database Migrations
-
-**OrmLite and Entity Framework:**
-
-```bash
-npm run migrate
-```
-
-**OrmLite (for application data):**
-
-Create migration classes in `MyApp/Migrations/` following the pattern in `Migration1000.cs`.
-
-### 4. Testing
-
-**Frontend:**
-```bash
-cd MyApp.Client
-npm run test        # Run tests in watch mode
-npm run test:ui     # Run tests with UI
-npm run test:run    # Run tests once
-```
-
-
-## Configuration
-
-### Key Configuration Files
-
-- **MyApp/appsettings.json** - Application configuration
-- **MyApp.Client/next.config.mjs** - Next.js configuration
-- **MyApp.Client/styles/index.css** - Tailwind CSS configuration
-- **config/deploy.yml** - Kamal deployment settings
-
-### App Settings
-
-Configure in `appsettings.json` or environment:
-
+#### OpenCode Configuration (`opencode.json` or MCP settings)
 ```json
 {
-  "ConnectionStrings": {
-    "DefaultConnection": "DataSource=App_Data/app.db;Cache=Shared"
-  },
-  "SmtpConfig": {
-    "Host": "smtp.example.com",
-    "Port": 587,
-    "FromEmail": "noreply@example.com",
-    "FromName": "MyApp"
-  },
-  "AppConfig": {
-    "BaseUrl": "https://myapp.example.com"
+  "type": "remote",
+  "url": "http://localhost:5000/chat/mcp",
+  "oauth": false,
+  "headers": {
+    "Authorization": "Bearer {env:MY_APP_API_KEY}"
   }
 }
 ```
 
-### App Settings Secrets
-
-Instead of polluting each GitHub Reposity with multiple App-specific GitHub Action Secrets, you can save all your secrets in a single `APPSETTINGS_PATCH` GitHub Action Secret to patch `appsettings.json` with environment-specific configuration using [JSON Patch](https://jsonpatch.com). E.g:
-
-```json
-[
-    {
-        "op":"replace",
-        "path":"/ConnectionStrings/DefaultConnection",
-        "value":"Server=service-postgres;Port=5432;User Id=dbuser;Password=dbpass;Database=dbname;Pooling=true;"
-    },
-    { "op":"add", "path":"/SmtpConfig", "value":{
-        "UserName": "SmptUser",
-        "Password": "SmptPass",
-        "Host": "email-smtp.us-east-1.amazonaws.com",
-        "Port": 587,
-        "From": "noreply@example.org",
-        "FromName": "MyApp",
-        "Bcc": "copy@example.org"
-      } 
-    },
-    { "op":"add", "path":"/Admins", "value": ["admin1@email.com","admin2@email.com"] },
-    { "op":"add", "path":"/CorsFeature/allowOriginWhitelist/-", "value":"https://servicestack.net" }
-]
-```
-
-### SMTP Email
-
-Enable email sending by uncommenting in `Program.cs`:
-
-```csharp
-services.AddSingleton<IEmailSender<ApplicationUser>, EmailSender>();
-```
-
-## Upgrading to Enterprise Database
-
-To switch from SQLite to PostgreSQL/SQL Server/MySQL:
-
-1. Install preferred RDBMS (ef-postgres, ef-mysql, ef-sqlserver), e.g:
-
+#### Oh My Pi CLI Registration
 ```bash
-npx add-in ef-postgres
+/mcp add coffeeshop --url http://localhost:5000/chat/mcp --token ak-your-api-key
 ```
 
-2. Install `db-identity` to use RDBMS `DatabaseJobsFeature` for background jobs and `DbRequestLogger` for Request Logs:
+---
 
-```bash
-npx add-in db-identity
-```
+## Development Setup
 
-## AutoQuery CRUD Dev Workflow
+### Prerequisites
+- [.NET 10 SDK](https://dotnet.microsoft.com/download)
+- [Node.js](https://nodejs.org/) (v18+)
 
-For Rapid Development simple [TypeScript Data Models](https://docs.servicestack.net/autoquery/okai-models) can be used to generate C# AutoQuery APIs and DB Migrations.
+### Running the App Locally
 
-### Cheat Sheet
+1. **Start Backend & Vite Frontend**:
+   ```bash
+   dotnet watch
+   ```
+   This launches the .NET application on `https://localhost:5001` (or `http://localhost:5000`) and automatically starts the Vite React dev server.
 
-### Create a new Table
+2. **Apply Database Migrations** (if setting up fresh DB):
+   ```bash
+   cd MyApp && npm run migrate
+   ```
 
-Create a new Table use `init <Table>`, e.g:
+3. **Access AI.Chat UI**:
+   Open `https://localhost:5001/chat` in your browser to interact with the Coffee Shop AI Assistant.
 
-```bash
-npx okai init Table
-```
+4. **Regenerate TypeScript DTOs** (when modifying C# DTOs):
+   ```bash
+   cd MyApp.Client && npm run dtos
+   ```
 
-This will generate an empty `MyApp.ServiceModel/<Table>.d.ts` file along with stub AutoQuery APIs and DB Migration implementations. 
+---
 
-### Use AI to generate the TypeScript Data Model
+## Testing
 
-Or to get you started quickly you can also use AI to generate the initial TypeScript Data Model with:
+- **Frontend Tests (Vitest)**:
+  ```bash
+  cd MyApp.Client && npm run test:run
+  ```
+- **Backend Tests (NUnit)**:
+  ```bash
+  dotnet test
+  ```
 
-```bash
-npx okai "Table to store Customer Stripe Subscriptions"
-```
-
-This launches a TUI that invokes ServiceStack's okai API to fire multiple concurrent requests to frontier cloud 
-and OSS models to generate the TypeScript Data Models required to implement this feature. 
-You'll be able to browse and choose which of the AI Models you prefer which you can accept by pressing `a` 
-to `(a) accept`. These are the data models [Claude Sonnet 4.5 generated](https://servicestack.net/text-to-blazor?id=1764337230546) for this prompt.
-
-#### Regenerate AutoQuery APIs and DB Migrations
-
-After modifying the `Table.d.ts` TypeScript Data Model to include the desired fields, re-run the `okai` tool to re-generate the AutoQuery APIs and DB Migrations:
-
-```bash
-npx okai Table.d.ts
-```
-
-> Command can be run anywhere within your Solution
-
-After you're happy with your Data Model you can run DB Migrations to run the DB Migration and create your RDBMS Table:
-
-```bash
-npm run migrate
-```
-
-#### Making changes after first migration
-
-If you want to make further changes to your Data Model, you can re-run the `okai` tool to update the AutoQuery APIs and DB Migrations, then run the `rerun:last` npm script to drop and re-run the last migration:
-
-```bash
-npm run rerun:last
-```
-
-#### Removing a Data Model and all generated code
-
-If you changed your mind and want to get rid of the RDBMS Table you can revert the last migration:
-
-```bash
-npm run revert:last
-```
-
-Which will drop the table and then you can get rid of the AutoQuery APIs, DB Migrations and TypeScript Data model with:
-
-```bash
-npx okai rm Transaction.d.ts
-```
-
-## Deployment
-
-### Docker + Kamal
-
-This project includes GitHub Actions for CI/CD with automatic Docker image builds and production [deployment with Kamal](https://docs.servicestack.net/kamal-deploy). The `/config/deploy.yml` configuration is designed to be reusable across projects—it dynamically derives service names, image paths, and volume mounts from environment variables, so you only need to configure your server's IP and hostname using GitHub Action secrets.
-
-### GitHub Action Secrets
-
-**Required - App Specific*:
-
-The only secret needed to be configured per Repository.
-
-| Variable | Example | Description |
-|----------|---------|-------------|
-| `KAMAL_DEPLOY_HOST` | `example.org` | Hostname used for SSL certificate and Kamal proxy |
-
-**Required** (Organization Secrets):
-
-Other Required variables can be globally configured in your GitHub Organization or User secrets which will
-enable deploying all your Repositories to the same server.
-
-| Variable | Example  | Description |
-|----------|----------|-------------|
-| `KAMAL_DEPLOY_IP`   | `100.100.100.100` | IP address of the server to deploy to |
-| `SSH_PRIVATE_KEY`   | `ssh-rsa ...`     | SSH private key to access the server |
-| `LETSENCRYPT_EMAIL` | `me@example.org`  | Email for Let's Encrypt SSL certificate |
-
-**Optional**:
-
-| Variable | Example | Description |
-|----------|---------|-------------|
-| `SERVICESTACK_LICENSE` | `...` | ServiceStack license key |
-
-**Inferred** (from GitHub Action context):
-
-These are inferred from the GitHub Action context and don't need to be configured.
-
-| Variable | Source | Description |
-|----------|--------|-------------|
-| `GITHUB_REPOSITORY` | `${{ github.repository }}` | e.g. `acme/example.org` - used for service name and image |
-| `KAMAL_REGISTRY_USERNAME` | `${{ github.actor }}` | GitHub username for container registry |
-| `KAMAL_REGISTRY_PASSWORD` | `${{ secrets.GITHUB_TOKEN }}` | GitHub token for container registry auth |
-
-#### Features
-
-- **Docker containerization** with optimized .NET images
-- **SSL auto-certification** via Let's Encrypt
-- **GitHub Container Registry** integration
-- **Volume persistence** for App_Data including any SQLite database
-
-## AI-Assisted Development with CLAUDE.md
-
-As part of our objectives of improving developer experience and embracing modern AI-assisted development workflows - all new .NET SPA templates include a comprehensive `AGENTS.md` file designed to optimize AI-assisted development workflows.
-
-### What is CLAUDE.md?
-
-`CLAUDE.md` and [AGENTS.md](https://agents.md) onboards Claude (and other AI assistants) to your codebase by using a structured documentation file that provides it with complete context about your project's architecture, conventions, and technology choices. This enables more accurate code generation, better suggestions, and faster problem-solving.
-
-### What's Included
-
-Each template's `AGENTS.md` contains:
-
-- **Project Architecture Overview** - Technology stack, design patterns, and key architectural decisions
-- **Project Structure** - Gives Claude a map of the codebase
-- **ServiceStack Conventions** - DTO patterns, Service implementation, AutoQuery, Authentication, and Validation
-- **API Integration** - TypeScript DTO generation, API client usage, component patterns, and form handling
-- **Database Patterns** - OrmLite setup, migrations, and data access patterns
-- **Common Development Tasks** - Step-by-step guides for adding APIs, implementing features, and extending functionality
-- **Testing & Deployment** - Test patterns and deployment workflows
-
-### Extending with Project-Specific Details
-
-The existing `CLAUDE.md` serves as a solid foundation, but for best results, you should extend it with project-specific details like the purpose of the project, key parts and features of the project and any unique conventions you've adopted.
-
-### Benefits
-
-- **Faster Onboarding** - New developers (and AI assistants) understand project conventions immediately
-- **Consistent Code Generation** - AI tools generate code following your project's patterns
-- **Better Context** - AI assistants can reference specific ServiceStack patterns and conventions
-- **Reduced Errors** - Clear documentation of framework-specific conventions
-- **Living Documentation** - Keep it updated as your project evolves
-
-### How to Use
-
-Claude Code and most AI Assistants already support automatically referencing `CLAUDE.md` and `AGENTS.md` files, for others you can just include it in your prompt context when asking for help, e.g:
-
-> Using my project's AGENTS.md, can you help me add a new AutoQuery API for managing Products?
-
-The AI will understand your App's ServiceStack conventions, React setup, and project structure, providing more accurate and contextual assistance.
-
-## Ideal Use Cases
-
-- SaaS applications requiring authentication
-- Admin dashboards with CRUD operations
-- Content-driven sites with dynamic APIs
-- Applications needing background job processing
-- Projects requiring both SSG benefits and API capabilities
-- Teams wanting type-safety across full stack
+---
 
 ## Learn More
 
-- [react-templates.net](https://react-templates.net)
-- [ServiceStack React Components](https://react.servicestack.net)
-- [ServiceStack Documentation](https://docs.servicestack.net)
-- [Vite Documentation](https://vite.dev)
-- [React Documentation](https://react.dev)
-- [AutoQuery CRUD](https://react-templates.net/docs/autoquery/crud)
-- [Background Jobs](https://docs.servicestack.net/background-jobs)
-- [AI Chat API](https://docs.servicestack.net/ai-chat-api)
+- **Announcement Blog Post**: [Instant AI Integration: Expose ServiceStack APIs to LLMs & MCP](https://servicestack.net/posts/api-tools)
+- **ServiceStack Documentation**: [https://docs.servicestack.net](https://docs.servicestack.net)
+- **ServiceStack AI Chat Features**: [https://docs.servicestack.net/ai](https://docs.servicestack.net/ai)
