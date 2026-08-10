@@ -1,0 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap');
+
+body { font-family: 'DM Sans', sans-serif; }
+.font-serif { font-family: 'DM Serif Display', Georgia, serif; }
+.hero { background: radial-gradient(circle at 88% 25%, #ead9c4 0, transparent 34%), linear-gradient(135deg, #fbf8f2 0%, #f2eadf 100%); }
