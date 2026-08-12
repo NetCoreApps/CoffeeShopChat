@@ -8,7 +8,7 @@ namespace MyApp;
 public class AppHost() : AppHostBase("MyApp"), IHostingStartup
 {
     public void Configure(IWebHostBuilder builder) => builder
-        .ConfigureServices((Action<WebHostBuilderContext, IServiceCollection>)((context, services) => {
+        .ConfigureServices((context, services) => {
             // Configure ASP.NET Core IOC Dependencies
             services.AddSingleton(context.Configuration.GetSection(nameof(AppConfig))?.Get<AppConfig>()
                 ?? new AppConfig {
@@ -16,7 +16,9 @@ public class AppHost() : AppHostBase("MyApp"), IHostingStartup
                             ? "https://localhost:5001"  
                             : Environment.GetEnvironmentVariable("KAMAL_DEPLOY_HOST"),
                     });
-            }));
+                    
+                context.HostingEnvironment.ContentRootPath.CombineWith("App_Data").AssertDir();
+            });
 
     // Configure your AppHost with the necessary configuration and dependencies your App needs
     public override void Configure()

@@ -5,6 +5,7 @@ using MyApp.Migrations;
 using ServiceStack;
 using ServiceStack.Data;
 using ServiceStack.OrmLite;
+using ServiceStack.Text;
 
 [assembly: HostingStartup(typeof(MyApp.ConfigureDbMigrations))]
 
