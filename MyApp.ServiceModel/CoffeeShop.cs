@@ -113,7 +113,10 @@ public class MenuOption
 
 [Tag(CoffeeShopTags.CoffeeShop)]
 [System.ComponentModel.Description("Returns the complete coffee shop menu with product IDs, prices, valid sizes, temperatures and customization options")]
-[Tool("the user wants to browse the coffee shop menu, learn what can be ordered, check prices, or build an order", Safety = ToolSafety.ReadOnly, Keywords = ["coffee", "drink", "food", "bakery", "customizations"], Take = 20)]
+[Tool("the user wants to browse the coffee shop menu, learn what can be ordered, check prices, or build an order", 
+      Safety = ToolSafety.ReadOnly, 
+      Keywords = ["coffee", "drink", "food", "bakery", "customizations"], 
+      Take = 20)]
 [Route("/coffee-shop/menu", "GET")]
 public class GetCoffeeShopMenu : IGet, IReturn<GetCoffeeShopMenuResponse> { }
 
@@ -154,7 +157,9 @@ public class OrderItemRequest
 
 [Tag(CoffeeShopTags.CoffeeShop)]
 [System.ComponentModel.Description("Validates and prices a proposed order without saving it. Returns normalized defaults and actionable validation errors")]
-[Tool("an order needs to be checked, normalized or priced before it is submitted", Safety = ToolSafety.ReadOnly, Keywords = ["preview", "quote", "total", "validate"])]
+[Tool("an order needs to be checked, normalized or priced before it is submitted", 
+      Safety = ToolSafety.ReadOnly, 
+      Keywords = ["preview", "quote", "total", "validate"])]
 [Route("/coffee-shop/orders/preview", "POST")]
 public class PreviewCoffeeShopOrder : IPost, IReturn<PreviewCoffeeShopOrderResponse>
 {
@@ -192,7 +197,11 @@ public class PreviewCoffeeShopOrderResponse
 
 [Tag(CoffeeShopTags.CoffeeShop)]
 [System.ComponentModel.Description("Submits a validated coffee shop order. Product names and prices are always resolved from the database")]
-[Tool("the user has finished choosing an order and wants to place or submit it", Safety = ToolSafety.Write, RequiresApproval = true, Keywords = ["buy", "checkout", "place order"], Examples = ["{\"customerName\":\"Sam\",\"items\":[{\"productId\":5,\"quantity\":1,\"size\":\"Grande\",\"temperature\":\"Hot\",\"options\":[{\"type\":\"Milks\",\"name\":\"Oat Milk\"}]}]}"])]
+[Tool("the user has finished choosing an order and wants to place or submit it", 
+      Safety = ToolSafety.Write, 
+      RequiresApproval = true, 
+      Keywords = ["buy", "checkout", "place order"], 
+      Examples = ["{\"customerName\":\"Sam\",\"items\":[{\"productId\":5,\"quantity\":1,\"size\":\"Grande\",\"temperature\":\"Hot\",\"options\":[{\"type\":\"Milks\",\"name\":\"Oat Milk\"}]}]}"])]
 [Route("/coffee-shop/orders", "POST")]
 public class CreateCoffeeShopOrder : IPost, IReturn<CreateCoffeeShopOrderResponse>
 {
