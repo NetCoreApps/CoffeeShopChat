@@ -34,7 +34,7 @@
     <PackageReference Include="ServiceStack.Extensions" Version="10.*" />
     <PackageReference Include="ServiceStack.Ormlite.Sqlite.Data" Version="10.*" />
     <PackageReference Include="ServiceStack.Jobs" Version="10.*" />
-    <PackageReference Include="ServiceStack.AI.Chat" Version="10.0.9" />
+    <PackageReference Include="ServiceStack.AI.Chat" Version="10.*" />
   </ItemGroup>
 
   <PropertyGroup>
