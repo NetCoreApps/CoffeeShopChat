@@ -108,7 +108,11 @@ public class MenuOption
 
 [Tag("coffee-shop")]
 [Description("Returns the complete coffee shop menu with product IDs, prices, valid sizes, temperatures and customization options")]
-[Tool("the user wants to browse the coffee shop menu, learn what can be ordered, check prices, or build an order", Safety = ToolSafety.ReadOnly, Keywords = ["coffee", "drink", "food", "bakery", "customizations"], FollowUps = [nameof(PreviewCoffeeShopOrder)], Take = 20)]
+[Tool("the user wants to browse the coffee shop menu, learn what can be ordered, check prices, or build an order", 
+    Safety = ToolSafety.ReadOnly, 
+    Keywords = ["coffee", "drink", "food", "bakery", "customizations"], 
+    FollowUps = [nameof(PreviewCoffeeShopOrder)], 
+    Take = 20)]
 [Route("/coffee-shop/menu", "GET")]
 public class GetCoffeeShopMenu : IGet, IReturn<GetCoffeeShopMenuResponse> { }
 
@@ -149,7 +153,11 @@ public class OrderItemRequest
 
 [Tag("coffee-shop")]
 [Description("Validates and prices a proposed order without saving it. Returns normalized defaults and actionable validation errors")]
-[Tool("an order needs to be checked, normalized or priced before it is submitted", Safety = ToolSafety.ReadOnly, Keywords = ["preview", "quote", "total", "validate"], Prerequisites = [nameof(GetCoffeeShopMenu)], FollowUps = [nameof(CreateCoffeeShopOrder)])]
+[Tool("an order needs to be checked, normalized or priced before it is submitted", 
+    Safety = ToolSafety.ReadOnly, 
+    Keywords = ["preview", "quote", "total", "validate"], 
+    Prerequisites = [nameof(GetCoffeeShopMenu)], 
+    FollowUps = [nameof(CreateCoffeeShopOrder)])]
 [Route("/coffee-shop/orders/preview", "POST")]
 public class PreviewCoffeeShopOrder : IPost, IReturn<PreviewCoffeeShopOrderResponse>
 {
@@ -223,7 +231,8 @@ public class CreateCoffeeShopOrderResponse
 
 [Tag("coffee-shop")]
 [Description("Returns a previously submitted coffee shop order by ID")]
-[Tool("the user asks for the details or status of a coffee shop order", Safety = ToolSafety.ReadOnly)]
+[Tool("the user asks for the details or status of a coffee shop order", 
+    Safety = ToolSafety.ReadOnly)]
 [Route("/coffee-shop/orders/{Id}", "GET")]
 public class GetCoffeeShopOrder : IGet, IReturn<GetCoffeeShopOrderResponse>
 {
