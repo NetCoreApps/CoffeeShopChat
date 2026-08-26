@@ -209,7 +209,21 @@ public class PreviewCoffeeShopOrderResponse
     Preview = nameof(PreviewCoffeeShopOrder), 
     FollowUps = [nameof(GetCoffeeShopOrder)], 
     Aliases = ["PlaceCoffeeShopOrder"], 
-    Examples = ["{\"customerName\":\"Sam\",\"items\":[{\"productId\":5,\"quantity\":1,\"size\":\"Grande\",\"temperature\":\"Hot\",\"options\":[{\"type\":\"Milks\",\"name\":\"Oat Milk\"}]}]}"])]
+    Examples = [
+        """
+        {
+          "customerName": "Sam",
+          "items": [
+            {
+              "productId": 5,
+              "quantity": 1,
+              "size": "Grande",
+              "temperature": "Hot",
+              "options": [{ "type": "Milks", "name": "Oat Milk" }]
+            }
+          ]
+        }
+        """])]
 [Route("/coffee-shop/orders", "POST")]
 public class CreateCoffeeShopOrder : IPost, IReturn<CreateCoffeeShopOrderResponse>
 {
