@@ -3,6 +3,162 @@ using ServiceStack.DataAnnotations;
 
 namespace MyApp.ServiceModel;
 
+[Tag("coffee-shop")]
+[Description("Returns the complete coffee shop menu with product IDs, prices, valid sizes, temperatures and customization options")]
+[Tool("the user wants to browse the coffee shop menu, learn what can be ordered, check prices, or build an order", 
+    Safety = ToolSafety.ReadOnly, 
+    Keywords = ["coffee", "drink", "food", "bakery", "customizations"], 
+    FollowUps = [nameof(PreviewCoffeeShopOrder)], 
+    Take = 20)]
+[Route("/coffee-shop/menu", "GET")]
+public class GetCoffeeShopMenu : IGet, IReturn<GetCoffeeShopMenuResponse> { }
+
+public class GetCoffeeShopMenuResponse
+{
+    public List<MenuCategory> Results { get; set; } = [];
+    public List<string> OptionQuantities { get; set; } = [];
+    public ResponseStatus? ResponseStatus { get; set; }
+}
+
+public class OrderItemOption
+{
+    [Description("Option group from the menu, e.g. Milks, Syrups, Sweeteners or Toppings")]
+    [ValidateNotEmpty]
+    public string Type { get; set; } = string.Empty;
+    [Description("Exact option name from that menu option group")]
+    [ValidateNotEmpty]
+    public string Name { get; set; } = string.Empty;
+    [Description("Optional quantity label: no, light, regular or extra. Use only where the menu allows quantity")]
+    public string? Quantity { get; set; }
+}
+
+public class OrderItemRequest
+{
+    [Description("Product ID returned by GetCoffeeShopMenu")]
+    [ValidateGreaterThan(0)]
+    public int ProductId { get; set; }
+    [Description("Number of this configured item to order")]
+    [ValidateGreaterThan(0)]
+    public int Quantity { get; set; } = 1;
+    [Description("Exact size supported by the product category; omit to use its default")]
+    public string? Size { get; set; }
+    [Description("Exact temperature supported by the product category; omit to use its default")]
+    public string? Temperature { get; set; }
+    [Description("Requested customizations. Each option must be valid for the product category")]
+    public List<OrderItemOption> Options { get; set; } = [];
+}
+
+[Tag("coffee-shop")]
+[Description("Validates and prices a proposed order without saving it. Returns normalized defaults and actionable validation errors")]
+[Tool("an order needs to be checked, normalized or priced before it is submitted", 
+    Safety = ToolSafety.ReadOnly, 
+    Keywords = ["preview", "quote", "total", "validate"], 
+    Prerequisites = [nameof(GetCoffeeShopMenu)], 
+    FollowUps = [nameof(CreateCoffeeShopOrder)])]
+[Route("/coffee-shop/orders/preview", "POST")]
+public class PreviewCoffeeShopOrder : IPost, IReturn<PreviewCoffeeShopOrderResponse>
+{
+    [Description("Name to put on the order")]
+    [ValidateNotEmpty]
+    public string CustomerName { get; set; } = string.Empty;
+    [Description("Optional instructions applying to the whole order")]
+    public string? Notes { get; set; }
+    [Description("One or more products from the current menu")]
+    [ValidateNotEmpty]
+    public List<OrderItemRequest> Items { get; set; } = [];
+}
+
+public class PricedOrderItem
+{
+    public int ProductId { get; set; }
+    public string ProductName { get; set; } = string.Empty;
+    public int Quantity { get; set; }
+    public string? Size { get; set; }
+    public string? Temperature { get; set; }
+    public List<OrderItemOption> Options { get; set; } = [];
+    public decimal UnitPrice { get; set; }
+    public decimal LineTotal { get; set; }
+    public string Summary { get; set; } = string.Empty;
+}
+
+public class PreviewCoffeeShopOrderResponse
+{
+    public string CustomerName { get; set; } = string.Empty;
+    public string? Notes { get; set; }
+    public List<PricedOrderItem> Items { get; set; } = [];
+    public decimal Subtotal { get; set; }
+    public ResponseStatus? ResponseStatus { get; set; }
+}
+
+[Tag("coffee-shop")]
+[Description("Submits and charges a coffee shop order. Product names and prices are always resolved from the database.")]
+[Mcp(Description =
+    """
+    Submits and charges a coffee shop order. Product names and prices are always resolved from the database.
+    IMPORTANT: Before calling this API you MUST first call PreviewCoffeeShopOrder, present the itemized summary and total 
+    price to the human customer verbatim, and WAIT for their explicit natural-language confirmation of both the items and 
+    the total in a subsequent user turn. 
+    Your own preview or reasoning does NOT count as customer confirmation. Do not place the order on the customer's behalf.   
+    """)]
+[Tool("the user has finished choosing an order and wants to place or submit it. Always confirm the itemized order and total price with the customer before calling this — never auto-submit",
+    Safety = ToolSafety.Write, RequiresApproval = true, Keywords = ["buy", "checkout", "place order"], 
+    Prerequisites = [
+        nameof(GetCoffeeShopMenu), 
+        nameof(PreviewCoffeeShopOrder)], 
+    Preview = nameof(PreviewCoffeeShopOrder), 
+    FollowUps = [nameof(GetCoffeeShopOrder)], 
+    Aliases = ["PlaceCoffeeShopOrder"], 
+    Examples = [
+        """
+        {
+          "customerName": "Sam",
+          "items": [
+            {
+              "productId": 5,
+              "quantity": 1,
+              "size": "Grande",
+              "temperature": "Hot",
+              "options": [{ "type": "Milks", "name": "Oat Milk" }]
+            }
+          ]
+        }
+        """])]
+[Route("/coffee-shop/orders", "POST")]
+public class CreateCoffeeShopOrder : IPost, IReturn<CreateCoffeeShopOrderResponse>
+{
+    [Description("Name to put on the order")]
+    [ValidateNotEmpty]
+    public string CustomerName { get; set; } = string.Empty;
+    [Description("Optional instructions applying to the whole order")]
+    public string? Notes { get; set; }
+    [Description("Final order items. The approval form lets the user edit these before submission")]
+    [ValidateNotEmpty]
+    public List<OrderItemRequest> Items { get; set; } = [];
+}
+
+public class CreateCoffeeShopOrderResponse
+{
+    public CoffeeShopOrder Result { get; set; } = new();
+    public ResponseStatus? ResponseStatus { get; set; }
+}
+
+[Tag("coffee-shop")]
+[Description("Returns a previously submitted coffee shop order by ID")]
+[Tool("the user asks for the details or status of a coffee shop order", 
+    Safety = ToolSafety.ReadOnly)]
+[Route("/coffee-shop/orders/{Id}", "GET")]
+public class GetCoffeeShopOrder : IGet, IReturn<GetCoffeeShopOrderResponse>
+{
+    [ValidateGreaterThan(0)] public int Id { get; set; }
+}
+
+public class GetCoffeeShopOrderResponse
+{
+    public CoffeeShopOrder Result { get; set; } = new();
+    public ResponseStatus? ResponseStatus { get; set; }
+}
+
+
 public class Category
 {
     [AutoIncrement] public int Id { get; set; }
@@ -104,157 +260,4 @@ public class MenuOption
     public List<string> Names { get; set; } = [];
     public bool AllowQuantity { get; set; }
     public string? QuantityLabel { get; set; }
-}
-
-[Tag("coffee-shop")]
-[Description("Returns the complete coffee shop menu with product IDs, prices, valid sizes, temperatures and customization options")]
-[Tool("the user wants to browse the coffee shop menu, learn what can be ordered, check prices, or build an order", 
-    Safety = ToolSafety.ReadOnly, 
-    Keywords = ["coffee", "drink", "food", "bakery", "customizations"], 
-    FollowUps = [nameof(PreviewCoffeeShopOrder)], 
-    Take = 20)]
-[Route("/coffee-shop/menu", "GET")]
-public class GetCoffeeShopMenu : IGet, IReturn<GetCoffeeShopMenuResponse> { }
-
-public class GetCoffeeShopMenuResponse
-{
-    public List<MenuCategory> Results { get; set; } = [];
-    public List<string> OptionQuantities { get; set; } = [];
-    public ResponseStatus? ResponseStatus { get; set; }
-}
-
-public class OrderItemOption
-{
-    [Description("Option group from the menu, e.g. Milks, Syrups, Sweeteners or Toppings")]
-    [ValidateNotEmpty]
-    public string Type { get; set; } = string.Empty;
-    [Description("Exact option name from that menu option group")]
-    [ValidateNotEmpty]
-    public string Name { get; set; } = string.Empty;
-    [Description("Optional quantity label: no, light, regular or extra. Use only where the menu allows quantity")]
-    public string? Quantity { get; set; }
-}
-
-public class OrderItemRequest
-{
-    [Description("Product ID returned by GetCoffeeShopMenu")]
-    [ValidateGreaterThan(0)]
-    public int ProductId { get; set; }
-    [Description("Number of this configured item to order")]
-    [ValidateGreaterThan(0)]
-    public int Quantity { get; set; } = 1;
-    [Description("Exact size supported by the product category; omit to use its default")]
-    public string? Size { get; set; }
-    [Description("Exact temperature supported by the product category; omit to use its default")]
-    public string? Temperature { get; set; }
-    [Description("Requested customizations. Each option must be valid for the product category")]
-    public List<OrderItemOption> Options { get; set; } = [];
-}
-
-[Tag("coffee-shop")]
-[Description("Validates and prices a proposed order without saving it. Returns normalized defaults and actionable validation errors")]
-[Tool("an order needs to be checked, normalized or priced before it is submitted", 
-    Safety = ToolSafety.ReadOnly, 
-    Keywords = ["preview", "quote", "total", "validate"], 
-    Prerequisites = [nameof(GetCoffeeShopMenu)], 
-    FollowUps = [nameof(CreateCoffeeShopOrder)])]
-[Route("/coffee-shop/orders/preview", "POST")]
-public class PreviewCoffeeShopOrder : IPost, IReturn<PreviewCoffeeShopOrderResponse>
-{
-    [Description("Name to put on the order")]
-    [ValidateNotEmpty]
-    public string CustomerName { get; set; } = string.Empty;
-    [Description("Optional instructions applying to the whole order")]
-    public string? Notes { get; set; }
-    [Description("One or more products from the current menu")]
-    [ValidateNotEmpty]
-    public List<OrderItemRequest> Items { get; set; } = [];
-}
-
-public class PricedOrderItem
-{
-    public int ProductId { get; set; }
-    public string ProductName { get; set; } = string.Empty;
-    public int Quantity { get; set; }
-    public string? Size { get; set; }
-    public string? Temperature { get; set; }
-    public List<OrderItemOption> Options { get; set; } = [];
-    public decimal UnitPrice { get; set; }
-    public decimal LineTotal { get; set; }
-    public string Summary { get; set; } = string.Empty;
-}
-
-public class PreviewCoffeeShopOrderResponse
-{
-    public string CustomerName { get; set; } = string.Empty;
-    public string? Notes { get; set; }
-    public List<PricedOrderItem> Items { get; set; } = [];
-    public decimal Subtotal { get; set; }
-    public ResponseStatus? ResponseStatus { get; set; }
-}
-
-[Tag("coffee-shop")]
-[Description("Submits and charges a coffee shop order. Product names and prices are always resolved from the database.")]
-[Mcp(Description =
-    """
-    Submits and charges a coffee shop order. Product names and prices are always resolved from the database.
-    IMPORTANT: Before calling this API you MUST first call PreviewCoffeeShopOrder, present the itemized summary and total price to the human customer verbatim, and WAIT for their explicit natural-language confirmation of both the items and the total in a subsequent user turn. 
-    Your own preview or reasoning does NOT count as customer confirmation. Do not place the order on the customer's behalf.   
-    """)]
-[Tool("the user has finished choosing an order and wants to place or submit it. Always confirm the itemized order and total price with the customer before calling this — never auto-submit",
-    Safety = ToolSafety.Write, RequiresApproval = true, Keywords = ["buy", "checkout", "place order"], 
-    Prerequisites = [
-        nameof(GetCoffeeShopMenu), 
-        nameof(PreviewCoffeeShopOrder)], 
-    Preview = nameof(PreviewCoffeeShopOrder), 
-    FollowUps = [nameof(GetCoffeeShopOrder)], 
-    Aliases = ["PlaceCoffeeShopOrder"], 
-    Examples = [
-        """
-        {
-          "customerName": "Sam",
-          "items": [
-            {
-              "productId": 5,
-              "quantity": 1,
-              "size": "Grande",
-              "temperature": "Hot",
-              "options": [{ "type": "Milks", "name": "Oat Milk" }]
-            }
-          ]
-        }
-        """])]
-[Route("/coffee-shop/orders", "POST")]
-public class CreateCoffeeShopOrder : IPost, IReturn<CreateCoffeeShopOrderResponse>
-{
-    [Description("Name to put on the order")]
-    [ValidateNotEmpty]
-    public string CustomerName { get; set; } = string.Empty;
-    [Description("Optional instructions applying to the whole order")]
-    public string? Notes { get; set; }
-    [Description("Final order items. The approval form lets the user edit these before submission")]
-    [ValidateNotEmpty]
-    public List<OrderItemRequest> Items { get; set; } = [];
-}
-
-public class CreateCoffeeShopOrderResponse
-{
-    public CoffeeShopOrder Result { get; set; } = new();
-    public ResponseStatus? ResponseStatus { get; set; }
-}
-
-[Tag("coffee-shop")]
-[Description("Returns a previously submitted coffee shop order by ID")]
-[Tool("the user asks for the details or status of a coffee shop order", 
-    Safety = ToolSafety.ReadOnly)]
-[Route("/coffee-shop/orders/{Id}", "GET")]
-public class GetCoffeeShopOrder : IGet, IReturn<GetCoffeeShopOrderResponse>
-{
-    [ValidateGreaterThan(0)] public int Id { get; set; }
-}
-
-public class GetCoffeeShopOrderResponse
-{
-    public CoffeeShopOrder Result { get; set; } = new();
-    public ResponseStatus? ResponseStatus { get; set; }
 }
