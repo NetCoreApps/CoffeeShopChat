@@ -17,12 +17,18 @@ public class ConfigureAiChat : IHostingStartup
                 // Require authentication to access /chat
                 RequireAuth = true,
                 // RequiredRole = "Admin",
+#if DEBUG
                 Tools =
                 {
-                    // README: Give AI Models access to Filesystem or Code Execution tools
-                    // EnableCodeExecution = true,
-                    // EnableFilesystemTools = true,
+                    // WARNING: Expands what AI Models can do by letting them execute
+                    // code on the server and read/write files in allowed directories.
+                    // Only enable for trusted users on trusted environments.
+                    EnableCodeExecution = true,
+                    EnableFilesystemTools = true,
                 },
+                // Share your best Projects, Threads or AI Media with everyone
+                // Publish = { Enabled = true },
+#endif
                 
                 // Expose APIs with these tags to API & MCP Tools
                 // ApiTools = {
@@ -49,7 +55,7 @@ public class ConfigureAiChat : IHostingStartup
             services.AddPlugin(new PdfFeature {
                 PdfCodeGen = new() {
                     Namespace = "MyApp.ServiceModel.Pdf",
-                    OutputPath = System.IO.Path.Combine(context.HostingEnvironment.ContentRootPath, "ServiceModel/Pdf"),
+                    OutputPath = System.IO.Path.Combine(context.HostingEnvironment.ContentRootPath, "../MyApp.ServiceModel/Pdf"),
                 }
             });
        })
@@ -57,9 +63,8 @@ public class ConfigureAiChat : IHostingStartup
             var log = appHost.GetApplicationServices().GetRequiredService<ILogger<ConfigureAiChat>>();
             log.LogInformation("AI Chat configured");
             
-            // Generate a typed model for every template in App_Data/pdf with:
-            //     dotnet run --AppTasks=pdf
+            // Keep typed PDF models in sync with published templates on each debug restart.
             // Templates you've since edited the model of are left alone, as are any named in Exclude.
-            AppTasks.Register("pdf", _ => appHost.GetPlugin<PdfFeature>().GeneratePdfs());
+            StartupTasks.Register("pdf", () => appHost.GetPlugin<PdfFeature>().GeneratePdfs());
         });
 }
